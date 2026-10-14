@@ -23,7 +23,15 @@ progress=Table("historical_backfill_progress",progress_metadata,
 def _completed(engine):
     progress_metadata.create_all(engine)
     with engine.connect() as cx:
-        return {(r.day,r.market) for r in cx.execute(select(progress.c.day,progress.c.market).where(progress.c.status.in_(["SUCCESS","NO_SESSION"]))).all()}
+        rows = cx.execute(select(progress.c.day, progress.c.market, progress.c.status)).all()
+    # Historical V3.1 misread TPEx's valid "ok" status as NO_SESSION.
+    # Never skip a date based on only one market saying it was closed.
+    done = {(r.day, r.market) for r in rows if r.status == "SUCCESS"}
+    no_session = {(r.day, r.market) for r in rows if r.status == "NO_SESSION"}
+    confirmed_closed_days = {day for day, market in no_session
+                             if (day, "TWSE") in no_session and (day, "TPEX") in no_session}
+    done.update((day, market) for day in confirmed_closed_days for market in ("TWSE", "TPEX"))
+    return done
 
 
 def _mark(engine, day, market, status, detail):

@@ -1,0 +1,21 @@
+台股飆股雷達 V3.1.1 — 歷史 TPEx 修正包
+
+【問題】
+V3.1 將 TPEx 歷史資料來源回傳的小寫 stat="ok" 誤判為 NO_SESSION，導致歷史價格未儲存；並將該狀態保存在 historical_backfill_progress，下一次回補將自動跳過。
+
+【修正】
+1. src/historical.py：將 OK/ok 都視為成功回應；格式異常不再假裝成休市。
+2. scripts/backfill.py：只有雙市場都回報 NO_SESSION 才略過已標記休市的日期；修復前 TPEx 的錯誤 NO_SESSION 日期會重試。
+
+【GitHub 上傳】
+1. 解壓縮本 ZIP。
+2. 在 taiwan-stock-radar GitHub Repository 的 Code 頁面，選 Add file → Upload files。
+3. 將解壓縮後的 src 與 scripts 資料夾拖曳至上傳區；請確定路徑為 /src/historical.py 與 /scripts/backfill.py，沒有額外根目錄。
+4. Commit changes to main。請勿把包含 DATABASE_URL 的秘密檔案上傳到公開倉庫。
+5. 在 Actions → Historical Warm-up (Manual) → Run workflow，使用 main、days_per_run=2、lookback_days=210。
+6. 展開 Fetch limited history, validate, and save，確認 TPEx 是否出現 SUCCESS YYYY-MM-DD N rows。若顯示 ERROR，請暫停回補並回報錯誤類型（避免洩漏秘密資訊）。
+
+【限制】
+- 21 項本機測試通過（含原有測試、大小寫處理與錯誤日期重試）。
+- 目前無法在本機連線真正 TPEx 過去歷史端點，仍須透過 GitHub Actions 驗證，若官方回應格式與本修正版假設不同，會明確失敗而不再誤報 NO_SESSION。
+- 本修正只涉及歷史抓取與重試，不代表完整100分模型或投資績效已驗證。

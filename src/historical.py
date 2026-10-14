@@ -103,10 +103,16 @@ def _checked_payload_date(payload, expected, table=None):
 def parse_historical(payload: dict, market: str, expected: date):
     if not isinstance(payload,dict):
         raise ValueError(f"{market}: unexpected payload type")
-    if payload.get("stat") and payload["stat"] != "OK":
-        raise NoSessionData(f"{market} {expected}: {payload['stat']}")
+    # TWSE reports "OK", while the TPEx historical endpoint may return "ok".
+    # A successful lower-case status must NEVER be classified as a closed market.
+    raw_status = str(payload.get("stat", "")).strip()
+    if raw_status and raw_status.casefold() != "ok":
+        no_data_markers = ("沒有符合", "查無", "無資料", "no data", "no records")
+        if any(marker in raw_status.casefold() for marker in no_data_markers):
+            raise NoSessionData(f"{market} {expected}: {raw_status}")
+        raise ValueError(f"{market} {expected}: unrecognized upstream status: {raw_status[:100]}")
     if not payload.get("tables") and not payload.get("data9") and not payload.get("data"):
-        raise NoSessionData(f"{market} {expected}: no tables / data")
+        raise ValueError(f"{market} {expected}: no expected tables/data (upstream schema may have changed)")
     table=_market_table(payload,market)
     _checked_payload_date(payload,expected,table)
     fields=table["fields"]
