@@ -180,7 +180,36 @@ with p4:
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
     if not latest.empty:
-        st.dataframe(latest.groupby("market",as_index=False).agg(最新日期=("day","max"),股票數=("code","nunique"),足夠K線數=("bars",lambda x:int((x>=65).sum()))),hide_index=True,use_container_width=True)
+        coverage = latest.groupby("market", as_index=False).agg(
+            最新日期=("day", "max"),
+            股票數=("code", "nunique"),
+            中位K線數=("bars", lambda x: int(x.median())),
+            最多K線數=("bars", "max"),
+            足夠K線數=("bars", lambda x: int((x >= 65).sum())),
+        )
+        st.dataframe(coverage, hide_index=True, use_container_width=True)
+
+        st.markdown("### 歷史日 K 累積進度（目標：65 根）")
+        st.caption(
+            "每個市場使用「最新交易日有行情股票的歷史日 K 根數中位數」顯示進度；"
+            "不是所有股票都已累積相同天數。65 根只代表具備技術評分所需的最低資料量，"
+            "不代表符合選股條件，也不代表完整100分 SOP 已完成。"
+        )
+        for market_name, group in latest.groupby("market", sort=True):
+            bars = pd.to_numeric(group["bars"], errors="coerce").dropna()
+            if bars.empty:
+                continue
+            median_bars = int(bars.median())
+            ready = int((bars >= 65).sum())
+            st.progress(
+                min(max(median_bars / 65, 0.0), 1.0),
+                text=f"{market_name}｜中位數 {median_bars}/65 根日 K｜已達標 {ready:,}/{len(group):,} 檔",
+            )
+            if median_bars < 65:
+                st.caption(f"{market_name} 的中位數距門檻仍差 {65 - median_bars} 根；新上市、停牌或缺漏資料股票可能需要更久。")
+        st.caption("進度依 Neon 已保存且 App 已載入的日線計算；資料更新後請按左側「重新讀取資料」。")
+    else:
+        st.info("目前沒有可計算進度的股票行情；請先確認資料庫或 DEMO 模式。")
     st.markdown("**已接入（每日最新快照）**：TWSE、TPEx 的盤後 OHLCV / 成交金額。GitHub Actions 可自動保存資料。")
     st.markdown("**尚未接入**：三大法人與投信、指數及族群領漲、月營收、重大利多公告、處置與完整證券分類、可靠的歷史除權息校正。由於資料不足，不能將技術候選等同於可交易標的。")
     st.markdown("**官方資料來源**：[TWSE OpenAPI](https://openapi.twse.com.tw/) · [TPEx OpenAPI](https://www.tpex.org.tw/zh-tw/openapi.html) · [公開資訊觀測站](https://mops.twse.com.tw/)")
