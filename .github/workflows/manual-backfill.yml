@@ -1,0 +1,47 @@
+
+name: Historical Warm-up (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_per_run:
+        description: '每次回補多少個平日'
+        required: true
+        default: '2'
+      lookback_days:
+        description: '最多往前查詢多少日曆日'
+        required: true
+        default: '210'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stock-historical-backfill
+  cancel-in-progress: false
+
+jobs:
+  historical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install requirements
+        run: pip install -r requirements.txt
+
+      - name: Fetch limited history, validate, and save
+        run: |
+          python -m scripts.backfill \
+            --days-per-run '${{ inputs.days_per_run }}' \
+            --lookback-days '${{ inputs.lookback_days }}' \
+            --min-wait 1.5 --require-remote
