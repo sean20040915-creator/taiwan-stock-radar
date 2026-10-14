@@ -157,6 +157,24 @@ def parse_historical(payload: dict, market: str, expected: date):
 
 
 def fetch_historical_day(session:requests.Session, market:str, trading_day:date):
+    
+    # Confirmed TWSE / TPEx market holidays in 2026
+    official_holidays_2026 = {
+        date(2026, 4, 3),
+        date(2026, 4, 6),
+        date(2026, 5, 1),
+        date(2026, 6, 19),
+        date(2026, 9, 25),
+        date(2026, 9, 28),
+        date(2026, 10, 9),
+        date(2026, 10, 26),
+    }
+
+    if trading_day in official_holidays_2026:
+        raise NoSessionData(
+            f"{market} {trading_day}: official market holiday"
+        )
+
     if market=="TWSE":
         url=TWSE_HISTORY_URL
         params={"date":trading_day.strftime("%Y%m%d"),"type":"ALLBUT0999","response":"json"}
