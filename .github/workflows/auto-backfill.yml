@@ -1,0 +1,42 @@
+
+name: Auto Historical Backfill
+
+on:
+  schedule:
+    - cron: '30 21 * * *'
+      timezone: 'Asia/Taipei'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stock-historical-backfill
+  cancel-in-progress: false
+
+jobs:
+  historical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install requirements
+        run: pip install -r requirements.txt
+
+      - name: Auto backfill history
+        run: |
+          python -m scripts.backfill \
+            --days-per-run 10 \
+            --lookback-days 210 \
+            --min-wait 1.5 \
+            --require-remote
