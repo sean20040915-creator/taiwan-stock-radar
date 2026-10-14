@@ -13,10 +13,10 @@ from src.strategy import scored_frame, latest_scans, SCORE_MAX, VERSION
 from src.backtest import simulate, metrics, signal_outcomes
 from src.demo import synthetic_prices
 
-st.set_page_config(page_title="台股飆股雷達 V3.0 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.1 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
-[data-testid="stMetric"]{background:#eff6f4;border-radius:12px;padding:12px}
+[data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
 h1{letter-spacing:-.03em}
 </style>""",unsafe_allow_html=True)
 
@@ -33,7 +33,7 @@ def analyze(frame):
     return scored_frame(frame)
 
 
-st.sidebar.title("📈 飆股雷達 V3.0")
+st.sidebar.title("📈 飆股雷達 V3.1")
 st.sidebar.caption("短線3～5交易日 | SOP技術預篩 MVP")
 st.sidebar.divider()
 try:
@@ -67,7 +67,7 @@ latest_day=str(prices.day.max()) if not prices.empty else "—"
 today=datetime.now(ZoneInfo("Asia/Taipei")).date()
 age=(today-pd.Timestamp(latest_day).date()).days if latest_day!="—" else None
 
-st.title("台股飆股雷達 V3.0")
+st.title("台股飆股雷達 V3.1")
 st.caption("先蓄勢，再突破；先驗證資料，再計算分數。適用 3～5 日短線策略研究。")
 if "示範" in mode:
     st.warning("🧪 **DEMO 模式**：所有股價、股票代號、排名與交易績效均為程式產生的虛構資料，不代表台灣股市。")
@@ -76,6 +76,9 @@ else:
         st.error(f"官方資料最新日期 {latest_day}，與今天已相隔 {age} 天；請先確認盤後更新狀態，不應視為即時訊號。")
     else:
         st.info(f"目前官方行情最新日期：{latest_day}。不同市場可能更新不同步；請到『資料品質』檢查。")
+if "示範" not in mode and not latest.empty and latest.groupby("market")["day"].max().nunique()>1:
+    dates=", ".join(f"{m}: {d}" for m,d in latest.groupby("market")["day"].max().items())
+    st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
 p1,p2,p3,p4,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🛠 資料品質"])
@@ -121,7 +124,7 @@ with p2:
         df=raw[(raw.market==chosen.market)&(raw.code==chosen.code)].sort_values("day").tail(90)
         x1,x2,x3,x4=st.columns(4)
         x1.metric("最新收盤",f"{chosen.close:.2f}")
-        x2.metric("技術分",f"{int(chosen.score)}/{SCORE_MAX}")
+        x2.metric("技術分",f"{int(chosen.score)}/{SCORE_MAX}" if chosen.bars>=65 else "資料不足")
         x3.metric("14日ATR",f"{chosen.atr14:.2f}" if pd.notna(chosen.atr14) else "待累積")
         x4.metric("狀態",str(chosen.status))
         fig=go.Figure(data=[go.Candlestick(x=df.day,open=df.open,high=df.high,low=df.low,close=df.close,name="K線")])
