@@ -63,7 +63,17 @@ def backfill(days_per_run=8,lookback_days=210,min_wait=1.5,require_remote=False,
     done=_completed(engine)
     ts=now or datetime.now(ZoneInfo("Asia/Taipei"))
     started=ts.isoformat(timespec="seconds")
+
     dates=planned_days(ts.date(),days_per_run,lookback_days,done)
+
+    # 晚間優先補抓當天缺漏的官方行情
+    if ts.hour >= 20 and ts.date().weekday() < 5:
+        today_str = ts.date().isoformat()
+        if any(
+            (today_str, market) not in done
+            for market in ("TWSE", "TPEX")
+        ):
+            dates = [ts.date()] + dates[:days_per_run - 1]
     if not dates:
         print("DONE: no missing weekdays in configured window")
         return {"saved":0,"no_session":0,"errors":0,"requested_dates":0}
