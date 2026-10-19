@@ -1,0 +1,39 @@
+name: V3.4 Long History Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_per_run:
+        description: 'Small historical pilot; default 2 market weekdays'
+        required: true
+        default: '2'
+        type: choice
+        options: ['1', '2', '3', '5']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stock-historical-backfill
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Small pilot across up-to-two-year lookback
+        run: |
+          python -m scripts.backfill \
+            --days-per-run '${{ inputs.days_per_run }}' \
+            --lookback-days 730 \
+            --min-wait 2.0 \
+            --require-remote
