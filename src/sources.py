@@ -7,6 +7,7 @@ listing-condition checks are required before any production trading decisions.
 from __future__ import annotations
 import math
 import re
+import time
 from datetime import date
 import requests
 
@@ -91,7 +92,33 @@ def parse_snapshot(rows, market: str) -> list[dict]:
 
 
 def fetch_snapshot(market: str, timeout=30) -> list[dict]:
+    """Fetch the latest official market snapshot with bounded transport retries.
+
+    TPEx may occasionally close a chunked HTTP response before the complete
+    JSON body arrives. The truncated response must NOT be accepted as a
+    successful snapshot, but retrying the same read can recover.
+    Schema/validation errors and 4xx other than 429 are not retried.
+    """
     url = {"TWSE": TWSE_URL, "TPEX": TPEX_URL}[market]
-    response = requests.get(url, headers=HEADERS, timeout=timeout)
-    response.raise_for_status()
-    return parse_snapshot(response.json(), market)
+    attempts = 4
+    retryable_http = {429, 500, 502, 503, 504, 520, 522, 524}
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return parse_snapshot(response.json(), market)
+        except (requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as exc:
+            if attempt == attempts - 1:
+                raise
+            print(f"RETRY {market} snapshot: transport error {type(exc).__name__}; "
+                  f"attempt {attempt+2}/{attempts}", flush=True)
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status not in retryable_http or attempt == attempts - 1:
+                raise
+            print(f"RETRY {market} snapshot: HTTP {status}; "
+                  f"attempt {attempt+2}/{attempts}", flush=True)
+        time.sleep(min(2 ** (attempt + 1), 8))
+    raise RuntimeError("Unreachable snapshot retry state")
