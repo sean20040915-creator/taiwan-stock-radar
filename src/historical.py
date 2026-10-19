@@ -24,7 +24,7 @@ def client() -> requests.Session:
     s = requests.Session()
     s.headers.update(HEADERS)
     retry = Retry(total=3, connect=3, read=3, backoff_factor=1.6,
-                  status_forcelist=[429,500,502,503,504], allowed_methods=["GET"],
+                  status_forcelist=[429,500,502,503,504,520,522,524], allowed_methods=["GET"],
                   respect_retry_after_header=True)
     s.mount("https://", HTTPAdapter(max_retries=retry))
     return s
@@ -164,6 +164,7 @@ def fetch_historical_day(session:requests.Session, market:str, trading_day:date)
         date(2026, 4, 6),
         date(2026, 5, 1),
         date(2026, 6, 19),
+        date(2026, 7, 10),  # Bavi typhoon: both exchanges closed
         date(2026, 9, 25),
         date(2026, 9, 28),
         date(2026, 10, 9),
