@@ -1,0 +1,37 @@
+name: V3.4 Automatic Two-Year Archive
+
+on:
+  schedule:
+    - cron: '15 22 * * *'
+      timezone: 'Asia/Taipei'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stock-historical-backfill
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Backfill up to five incomplete weekdays
+        run: |
+          python -m scripts.archive_backfill \
+            --start-date 2024-10-21 \
+            --end-date 2026-10-19 \
+            --days-per-run 5 \
+            --min-wait 2.0 \
+            --require-remote
