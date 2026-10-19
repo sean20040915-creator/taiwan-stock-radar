@@ -8,6 +8,7 @@ not wished-away at stop. Slippage and taxes/fees are explicit assumptions.
 import numpy as np
 import pandas as pd
 from .strategy import scored_frame
+from .diagnostics import assess_entry, resolve_exit
 
 
 def simulate(prices: pd.DataFrame, cash=1_000_000.0, fee=.001425, tax=.003,
@@ -16,64 +17,40 @@ def simulate(prices: pd.DataFrame, cash=1_000_000.0, fee=.001425, tax=.003,
     trades = []
     if d.empty:
         return pd.DataFrame()
-    for (market, code), g in d.groupby(["market","code"]):
-        g = g.reset_index(drop=True)
+    for (market, code), g in d.groupby(["market", "code"]):
+        g = g.sort_values("day").reset_index(drop=True)
         i = 0
-        while i < len(g)-1:
-            r = g.iloc[i]
-            if not r.trigger:
+        while i < len(g) - 1:
+            signal = g.iloc[i]
+            if not bool(signal.trigger):
                 i += 1
                 continue
             entry_row = g.iloc[i+1]
-            # Gaps beyond 2% prohibit chasing.
-            if entry_row.open > r.close*1.02 or not np.isfinite(r.atr14):
+            decision = assess_entry(signal, entry_row, cash=cash, slippage=slippage,
+                                    risk_pct=risk_pct, position_pct=position_pct)
+            if decision["code"] != "OK":
                 i += 1
                 continue
-            entry = float(entry_row.open) * (1+slippage)
-            stop = min(float(r.low5_prev), entry-float(r.atr14))
-            risk = (entry-stop)/entry
-            if not .02 <= risk <= .045:
+            resolved = resolve_exit(g, i+1, stop=decision["stop"],
+                                    target=decision["target"], max_holding=max_holding)
+            if resolved is None:
                 i += 1
                 continue
-            target = entry*(1+max(.07,2*risk))
-            lots = int(min(cash*risk_pct/(entry-stop),cash*position_pct/entry)//1000)
-            if lots < 1:
-                i += 1
-                continue
-            qty = lots*1000
-            last = min(i+max_holding,len(g)-1)
-            exit_idx = last
-            exit_reason, raw_exit = "第5日時間出場", float(g.iloc[last].close)
-            for j in range(i+1,last+1):
-                bar = g.iloc[j]
-                # if a gap crosses stop, cannot fill at a fictional stop price
-                if bar.open<=stop:
-                    exit_idx,exit_reason,raw_exit=j,"跳空停損",float(bar.open)
-                    break
-                if bar.low<=stop:
-                    exit_idx,exit_reason,raw_exit=j,"停損優先",stop
-                    break
-                if bar.open>=target:
-                    exit_idx,exit_reason,raw_exit=j,"跳空停利",float(bar.open)
-                    break
-                if bar.high>=target:
-                    exit_idx,exit_reason,raw_exit=j,"目標停利",target
-                    break
-            received = raw_exit*(1-slippage)
-            gross_buy = qty*entry
-            gross_sell = qty*received
-            net = gross_sell*(1-fee-tax)-gross_buy*(1+fee)
-            net_pct = net/gross_buy
-            trades.append({"市場":market,"代號":code,"名稱":r["name"],
-                "突破日":str(r.day),"進場日":str(entry_row.day),
+            exit_idx, exit_reason, raw_exit = resolved
+            entry, qty = decision["entry"], decision["qty"]
+            received = raw_exit * (1-slippage)
+            gross_buy = qty * entry
+            gross_sell = qty * received
+            net = gross_sell * (1-fee-tax) - gross_buy * (1+fee)
+            trades.append({"市場":market,"代號":code,"名稱":signal["name"],
+                "突破日":str(signal.day),"進場日":str(entry_row.day),
                 "出場日":str(g.iloc[exit_idx].day),"進場價":round(entry,3),
-                "停損價":round(stop,3),"目標價":round(target,3),
+                "停損價":round(decision["stop"],3),"目標價":round(decision["target"],3),
                 "賣出價":round(received,3),"股數":qty,"出場原因":exit_reason,
-                "淨損益":round(net,2),"淨報酬率":net_pct,"淨R倍數":net/(gross_buy*risk)})
-            # Do not create overlapping per-symbol trades while the position is open.
-            i = exit_idx+1
+                "淨損益":round(net,2),"淨報酬率":net/gross_buy,
+                "淨R倍數":net/(gross_buy*decision["risk"])})
+            i = exit_idx + 1
     return pd.DataFrame(trades)
-
 
 def metrics(trades: pd.DataFrame):
     if trades.empty:
