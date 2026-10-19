@@ -158,8 +158,9 @@ def parse_historical(payload: dict, market: str, expected: date):
 
 def fetch_historical_day(session:requests.Session, market:str, trading_day:date):
     
-    # Confirmed TWSE / TPEx market holidays in 2026
-    official_holidays_2026 = {
+    # Confirmed TWSE / TPEx full-market closures; only verified dates belong here.
+    official_market_closures = {
+        date(2024, 10, 31),  # Kong-rey typhoon: both exchanges closed
         date(2026, 4, 3),
         date(2026, 4, 6),
         date(2026, 5, 1),
@@ -171,7 +172,7 @@ def fetch_historical_day(session:requests.Session, market:str, trading_day:date)
         date(2026, 10, 26),
     }
 
-    if trading_day in official_holidays_2026:
+    if trading_day in official_market_closures:
         raise NoSessionData(
             f"{market} {trading_day}: official market holiday"
         )
