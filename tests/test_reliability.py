@@ -57,3 +57,11 @@ def test_historical_client_retries_http_520():
     adapter = session.get_adapter("https://www.tpex.org.tw")
     assert 520 in adapter.max_retries.status_forcelist
     session.close()
+
+
+@pytest.mark.parametrize("market", ["TWSE", "TPEX"])
+def test_2024_kong_rey_closure_is_not_schema_error(market):
+    session = Mock()
+    with pytest.raises(historical.NoSessionData, match="official market holiday"):
+        historical.fetch_historical_day(session, market, date(2024, 10, 31))
+    session.get.assert_not_called()
