@@ -52,22 +52,54 @@ def planned_days(today,days_per_run,lookback_days,done):
     return dates
 
 
-def backfill(days_per_run=8,lookback_days=210,min_wait=1.5,require_remote=False,now=None):
+def planned_interval(start, end, days_per_run, done):
+    """Oldest missing weekdays first in an explicitly requested manual window."""
+    result = []
+    day = start
+    while day <= end and len(result) < days_per_run:
+        key = day.isoformat()
+        if day.weekday() < 5 and any(
+            (key, market) not in done for market in ("TWSE", "TPEX")
+        ):
+            result.append(day)
+        day += timedelta(days=1)
+    return result
+
+
+def backfill(days_per_run=8,lookback_days=210,min_wait=1.5,require_remote=False,now=None,
+             start_date=None,end_date=None):
     if not 1<=days_per_run<=25: raise ValueError("days_per_run must be 1..25")
     if not 30<=lookback_days<=730: raise ValueError("lookback_days must be 30..730")
     if min_wait<1.0: raise ValueError("min_wait must be >= 1 second to avoid aggressive requests")
+    if (start_date is None) != (end_date is None):
+        raise ValueError("Specify both --start-date and --end-date, or neither")
+    ts=now or datetime.now(ZoneInfo("Asia/Taipei"))
+    if start_date is not None:
+        from datetime import date as date_type
+        start=date_type.fromisoformat(start_date) if isinstance(start_date,str) else start_date
+        end=date_type.fromisoformat(end_date) if isinstance(end_date,str) else end_date
+        # Cautious manual pilot, not a bulk scraper or unbounded traversal.
+        if end<start or (end-start).days>30:
+            raise ValueError("Manual date interval must be increasing and at most 31 calendar days")
+        if end>=ts.date():
+            raise ValueError("Manual interval must end before today (settled EOD only)")
+        if start < ts.date()-timedelta(days=1096):
+            raise ValueError("Manual date interval must be within last three years")
     url=database_url()
     if require_remote and url.startswith("sqlite"):
         raise RuntimeError("DATABASE_URL missing: remote backfill requires PostgreSQL")
     engine=make_engine(url)
     done=_completed(engine)
-    ts=now or datetime.now(ZoneInfo("Asia/Taipei"))
     started=ts.isoformat(timespec="seconds")
 
-    dates=planned_days(ts.date(),days_per_run,lookback_days,done)
+    if start_date is not None:
+        dates=planned_interval(start,end,days_per_run,done)
+        print(f"MANUAL_WINDOW {start.isoformat()}..{end.isoformat()}, selected {len(dates)} missing weekdays",flush=True)
+    else:
+        dates=planned_days(ts.date(),days_per_run,lookback_days,done)
 
-    # 晚間優先補抓當天缺漏的官方行情
-    if ts.hour >= 20 and ts.date().weekday() < 5:
+    # Preserve the daily automatic behaviour; never inject today's date into manual past windows.
+    if start_date is None and ts.hour >= 20 and ts.date().weekday() < 5:
         today_str = ts.date().isoformat()
         if any(
             (today_str, market) not in done
@@ -127,5 +159,8 @@ if __name__=="__main__":
     p.add_argument("--lookback-days",type=int,default=210)
     p.add_argument("--min-wait",type=float,default=1.5)
     p.add_argument("--require-remote",action="store_true")
+    p.add_argument("--start-date",type=str,default=None,help="YYYY-MM-DD (manual date window only)")
+    p.add_argument("--end-date",type=str,default=None,help="YYYY-MM-DD (manual date window only)")
     args=p.parse_args()
-    backfill(args.days_per_run,args.lookback_days,args.min_wait,args.require_remote)
+    backfill(args.days_per_run,args.lookback_days,args.min_wait,args.require_remote,
+             start_date=args.start_date,end_date=args.end_date)
