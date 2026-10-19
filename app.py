@@ -12,9 +12,10 @@ from src.storage import make_engine, database_url, load_prices, load_runs
 from src.strategy import scored_frame, latest_scans, SCORE_MAX, VERSION
 from src.backtest import simulate, metrics, signal_outcomes
 from src.diagnostics import diagnose_triggers, historical_signal_outcomes
+from src.validation import validation_observations, descriptive_summary
 from src.demo import synthetic_prices
 
-st.set_page_config(page_title="台股飆股雷達 V3.2 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.3 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
 [data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
@@ -34,7 +35,7 @@ def analyze(frame):
     return scored_frame(frame)
 
 
-st.sidebar.title("📈 飆股雷達 V3.1")
+st.sidebar.title("📈 飆股雷達 V3.3")
 st.sidebar.caption("短線3～5交易日 | SOP技術預篩 MVP")
 st.sidebar.divider()
 try:
@@ -68,7 +69,7 @@ latest_day=str(prices.day.max()) if not prices.empty else "—"
 today=datetime.now(ZoneInfo("Asia/Taipei")).date()
 age=(today-pd.Timestamp(latest_day).date()).days if latest_day!="—" else None
 
-st.title("台股飆股雷達 V3.1")
+st.title("台股飆股雷達 V3.3")
 st.caption("先蓄勢，再突破；先驗證資料，再計算分數。適用 3～5 日短線策略研究。")
 if "示範" in mode:
     st.warning("🧪 **DEMO 模式**：所有股價、股票代號、排名與交易績效均為程式產生的虛構資料，不代表台灣股市。")
@@ -82,7 +83,7 @@ if "示範" not in mode and not latest.empty and latest.groupby("market")["day"]
     st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
-p1,p2,p3,p4,p6,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","🛠 資料品質"])
+p1,p2,p3,p4,p6,p7,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🛠 資料品質"])
 
 with p1:
     good=latest[latest.setup] if not latest.empty else pd.DataFrame()
@@ -222,6 +223,42 @@ with p6:
         st.dataframe(observations.sort_values("訊號日", ascending=False), hide_index=True, use_container_width=True)
         st.download_button("下載後5日觀察 CSV", observations.to_csv(index=False).encode("utf-8-sig"),
                            file_name="v32_signal_observations.csv", mime="text/csv")
+
+with p7:
+    st.subheader("V3.3｜3～5日訊號有效性驗證")
+    st.warning("目前是「描述性研究」，不是已證實有預測力的買進策略。使用訊號當日收盤作參考基準，未扣交易成本、未模擬可成交性；缺少歷史下市股、除權息調整及完整證券分類。")
+    st.caption("固定57分技術模型，不降低門檻、不依照這份樣本最佳化。所有報酬對齊各市場真正的第3、第5個交易日；同市場基準是當日滿足65日及20日均成交金額5,000萬元的股票等權平均，並非加權指數。")
+    report = validation_observations(raw)
+    if report.empty:
+        st.info("歷史資料仍不足以計算同日市場比較；先讓自動回補持續累積，或核對資料品質。")
+    else:
+        total = len(report)
+        complete = report[report["5日狀態"] == "完整"]
+        col_a,col_b,col_c,col_d = st.columns(4)
+        col_a.metric("觀察股票日", f"{total:,}")
+        col_b.metric("5日觀察完整", f"{len(complete):,}")
+        col_c.metric("突破確認完整", f"{int((complete['訊號類型']=='突破確認').sum()):,}")
+        col_d.metric("未成熟／缺漏", f"{total-len(complete):,}")
+        st.markdown("#### 樣本完整性")
+        st.dataframe(report["5日狀態"].value_counts().rename_axis("狀態").reset_index(name="筆數"),
+                     hide_index=True, use_container_width=True)
+        a,b = st.tabs(["依技術分數", "依訊號類型"])
+        with a:
+            score_table = descriptive_summary(report, "分數區間")
+            if score_table.empty:
+                st.info("目前沒有足夠的成熟期間比較樣本。")
+            else:
+                st.dataframe(score_table, hide_index=True, use_container_width=True)
+        with b:
+            signal_table = descriptive_summary(report, "訊號類型")
+            if signal_table.empty:
+                st.info("目前尚無成熟的候選或突破觀察樣本。")
+            else:
+                st.dataframe(signal_table, hide_index=True, use_container_width=True)
+        st.caption("前70%／後30%只是時間區段檢查，不是獨立訓練後的真正樣本外回測；切分邊界的跨期觀察不列入區段比較。訊號可能連續多日高度相關，不可將股票日數當成獨立交易樣本。")
+        st.download_button("下載完整 V3.3 逐日觀測 CSV", report.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="v33_signal_validation.csv", mime="text/csv")
+        st.info("驗證不足時請維持原有57分規則；先擴充跨年度歷史資料、歷史下市股與公司行動調整，再做真正獨立的樣本外測試。")
 
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
