@@ -11,9 +11,10 @@ import streamlit as st
 from src.storage import make_engine, database_url, load_prices, load_runs
 from src.strategy import scored_frame, latest_scans, SCORE_MAX, VERSION
 from src.backtest import simulate, metrics, signal_outcomes
+from src.diagnostics import diagnose_triggers, historical_signal_outcomes
 from src.demo import synthetic_prices
 
-st.set_page_config(page_title="台股飆股雷達 V3.1 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.2 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
 [data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
@@ -81,7 +82,7 @@ if "示範" not in mode and not latest.empty and latest.groupby("market")["day"]
     st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
-p1,p2,p3,p4,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🛠 資料品質"])
+p1,p2,p3,p4,p6,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","🛠 資料品質"])
 
 with p1:
     good=latest[latest.setup] if not latest.empty else pd.DataFrame()
@@ -176,6 +177,51 @@ with p4:
         st.dataframe(trades.sort_values("進場日",ascending=False),hide_index=True,use_container_width=True)
         st.download_button("下載模擬逐筆交易",trades.to_csv(index=False).encode("utf-8-sig"),"backtest_trades.csv","text/csv")
     st.caption("停損與停利同日觸及→先停損；跳空按開盤價計；進場次日起算不正確，本模擬進場當日即第1日，至第5日結束；賣出稅率假設0.3%、兩側費率可調。")
+
+with p6:
+    st.subheader("V3.2｜突破進場診斷")
+    st.caption("固定保留原先進場門檻：次日跳空不超過2%、停損距離2%～4.5%、單檔部位最多15%、整張1000股。診斷不會放寬規則。")
+    st.warning("這是研究稽核，不是已驗證的交易策略。訊號發生在最後交易日時，次日行情尚未產生，會標記為「等待次日行情」。")
+    diagnostics = diagnose_triggers(raw, cash=float(cash), slippage=slip)
+    st.metric("歷史突破訊號", len(diagnostics))
+    if diagnostics.empty:
+        st.info("目前載入期間沒有技術突破訊號，尚無可診斷的進場樣本。")
+    else:
+        counts = diagnostics["判定"].value_counts().rename_axis("診斷狀態").reset_index(name="訊號數")
+        st.subheader("進場條件排除原因")
+        st.dataframe(counts, hide_index=True, use_container_width=True)
+        st.subheader("逐筆訊號與排除明細")
+        st.dataframe(diagnostics.sort_values("突破日", ascending=False), hide_index=True, use_container_width=True,
+                     column_config={"跳空幅度": st.column_config.NumberColumn(format="%.2f"),
+                                    "停損距離": st.column_config.NumberColumn(format="%.3f")})
+        st.download_button("下載訊號診斷 CSV", diagnostics.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="v32_signal_diagnostics.csv", mime="text/csv")
+        completed = int(diagnostics["已完成交易"].sum())
+        st.caption(f"完成模擬交易判定：{completed} 筆。若和回測交易數不同，請勿依賴當前結果，應先檢查程式與資料。")
+    st.divider()
+    st.subheader("蓄勢與突破訊號｜後5日觀察")
+    st.caption("採收盤後訊號價為觀察基準，計算後3日／5日收盤變動與後5日最高價是否觸及+7%；這些都不是可成交獲利。只有五個後續日線的訊號才納入。")
+    observations = historical_signal_outcomes(raw)
+    if observations.empty:
+        st.info("沒有具備完整後5日資料的觀察樣本，暫時無法估計訊號表現。")
+    else:
+        overview = observations.groupby("訊號類型", as_index=False).agg(
+            樣本數=("代號", "size"),
+            第3日平均變動=("第3日收盤變動", "mean"),
+            第5日平均變動=("第5日收盤變動", "mean"),
+            曾觸及7pct=("曾觸及7%", "mean"),
+        )
+        for col in ("第3日平均變動", "第5日平均變動", "曾觸及7pct"):
+            overview[col] = (overview[col] * 100).round(2)
+        overview = overview.rename(columns={"曾觸及7pct": "觸及7%比例(%)", "第3日平均變動": "第3日平均變動(%)", "第5日平均變動": "第5日平均變動(%)"})
+        st.dataframe(overview, hide_index=True, use_container_width=True)
+        if len(observations) < 100:
+            st.warning("完整後5日觀察樣本少於100筆，不應解讀為穩定勝率或可交易優勢。")
+        else:
+            st.info("樣本數雖增加，但尚未完成獨立樣本外、除權息、歷史下市股及行情可交易性驗證。")
+        st.dataframe(observations.sort_values("訊號日", ascending=False), hide_index=True, use_container_width=True)
+        st.download_button("下載後5日觀察 CSV", observations.to_csv(index=False).encode("utf-8-sig"),
+                           file_name="v32_signal_observations.csv", mime="text/csv")
 
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
