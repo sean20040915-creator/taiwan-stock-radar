@@ -13,9 +13,11 @@ from src.strategy import scored_frame, latest_scans, SCORE_MAX, VERSION
 from src.backtest import simulate, metrics, signal_outcomes
 from src.diagnostics import diagnose_triggers, historical_signal_outcomes
 from src.validation import validation_observations, descriptive_summary
+from src.coverage import archive_coverage
+from src.forward_audit import verify_frozen_rules, forward_signal_report
 from src.demo import synthetic_prices
 
-st.set_page_config(page_title="台股飆股雷達 V3.3 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.4 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
 [data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
@@ -35,7 +37,7 @@ def analyze(frame):
     return scored_frame(frame)
 
 
-st.sidebar.title("📈 飆股雷達 V3.3")
+st.sidebar.title("📈 飆股雷達 V3.4")
 st.sidebar.caption("短線3～5交易日 | SOP技術預篩 MVP")
 st.sidebar.divider()
 try:
@@ -69,7 +71,7 @@ latest_day=str(prices.day.max()) if not prices.empty else "—"
 today=datetime.now(ZoneInfo("Asia/Taipei")).date()
 age=(today-pd.Timestamp(latest_day).date()).days if latest_day!="—" else None
 
-st.title("台股飆股雷達 V3.3")
+st.title("台股飆股雷達 V3.4")
 st.caption("先蓄勢，再突破；先驗證資料，再計算分數。適用 3～5 日短線策略研究。")
 if "示範" in mode:
     st.warning("🧪 **DEMO 模式**：所有股價、股票代號、排名與交易績效均為程式產生的虛構資料，不代表台灣股市。")
@@ -83,7 +85,7 @@ if "示範" not in mode and not latest.empty and latest.groupby("market")["day"]
     st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
-p1,p2,p3,p4,p6,p7,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🛠 資料品質"])
+p1,p2,p3,p4,p6,p7,p8,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🧭 前瞻追蹤 V3.4","🛠 資料品質"])
 
 with p1:
     good=latest[latest.setup] if not latest.empty else pd.DataFrame()
@@ -259,6 +261,40 @@ with p7:
         st.download_button("下載完整 V3.3 逐日觀測 CSV", report.to_csv(index=False).encode("utf-8-sig"),
                            file_name="v33_signal_validation.csv", mime="text/csv")
         st.info("驗證不足時請維持原有57分規則；先擴充跨年度歷史資料、歷史下市股與公司行動調整，再做真正獨立的樣本外測試。")
+
+with p8:
+    st.subheader("V3.4｜兩年資料建置與凍結規則前瞻追蹤")
+    frozen = verify_frozen_rules()
+    if frozen["rules_unchanged"]:
+        st.success("57分技術規則與 V3.3 驗證程式版本符合凍結記錄。")
+    else:
+        st.error("規則或驗證程式已更動：原本前瞻追蹤需暫停解讀，先核對規則版本。")
+        st.write(frozen["issues"])
+    st.caption("凍結截止：2026/10/19；前瞻訊號起點：2026/10/20。前瞻只代表時間順序，尚未涵蓋除權息、歷史下市股和真實成交條件。")
+    st.markdown("#### 已保存歷史行情範圍")
+    if "示範" in mode:
+        st.info("DEMO 模式不顯示真實資料庫覆蓋情況。")
+    else:
+        try:
+            archive = archive_coverage(get_engine())
+            st.dataframe(archive, hide_index=True, use_container_width=True)
+            st.caption("市場日數是資料庫實際保存的不同日期，非官方完整交易日曆；兩年目標尚需逐日核實缺漏。")
+        except Exception as exc:
+            st.warning(f"無法讀取資料庫歷史範圍：{type(exc).__name__}")
+    st.markdown("#### 凍結規則前瞻訊號")
+    if not frozen["rules_unchanged"]:
+        st.warning("程式版本未通過凍結檢查，不呈現前瞻報酬統計。")
+    else:
+        future_obs = validation_observations(raw)
+        summary, future_signals = forward_signal_report(future_obs)
+        if summary.empty:
+            st.info("2026/10/20 起尚沒有可整理的前瞻候選或突破訊號，會隨官方行情累積更新。")
+        else:
+            st.dataframe(summary, hide_index=True, use_container_width=True)
+            st.caption("未滿完整後5個交易日的訊號不納入報酬；股票日資料高度相關，不能視為獨立樣本。")
+            st.download_button("下載 V3.4 前瞻訊號觀察 CSV", future_signals.to_csv(index=False).encode("utf-8-sig"),
+                               file_name="v34_forward_signals.csv", mime="text/csv")
+    st.info("兩年回補請使用 GitHub Actions 的 V3.4 Long History Pilot，先以2天小量試跑。此階段不會宣稱樣本外交易策略已驗證。")
 
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
