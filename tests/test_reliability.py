@@ -65,3 +65,11 @@ def test_2024_kong_rey_closure_is_not_schema_error(market):
     with pytest.raises(historical.NoSessionData, match="official market holiday"):
         historical.fetch_historical_day(session, market, date(2024, 10, 31))
     session.get.assert_not_called()
+
+
+@pytest.mark.parametrize("market", ["TWSE", "TPEX"])
+def test_2026_october_23_typhoon_closure(market):
+    session = Mock()
+    with pytest.raises(historical.NoSessionData, match="official market holiday"):
+        historical.fetch_historical_day(session, market, date(2026, 10, 23))
+    session.get.assert_not_called()
