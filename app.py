@@ -18,7 +18,15 @@ from src.data_audit import read_daily_counts, analyze_archive_coverage, backtest
 from src.forward_audit import verify_frozen_rules, forward_signal_report
 from src.demo import synthetic_prices
 from src.storage import load_prices_between
-from src.research_v36 import research_integrity, research_readiness
+# V3.6 is an optional research tab. A deployment with a stale research module
+# must not take down the live-scan / backfill dashboard at startup.
+try:
+    from src.research_v36 import research_integrity, research_readiness
+    research_module_error = None
+except (ImportError, SyntaxError, AttributeError) as exc:
+    research_integrity = None
+    research_readiness = None
+    research_module_error = type(exc).__name__
 from datetime import date, timedelta
 
 st.set_page_config(page_title="台股飆股雷達 V3.6 | 技術預篩",page_icon="📈",layout="wide")
@@ -337,7 +345,10 @@ with p10:
     d1,d2=st.columns(2)
     research_start=d1.date_input("訊號開始日期",value=date(2025,3,3),key="v36_start")
     research_end=d2.date_input("訊號結束日期",value=date(2025,3,14),key="v36_end")
-    if "示範" in mode or db_problem:
+    if research_module_error is not None:
+        st.error("V3.6 研究模組尚未正確載入，其他選股與資料功能仍可使用。請重新部署最新 GitHub main 版本。")
+        st.caption(f"研究模組診斷：{research_module_error}。不會因此變更資料庫或57分選股規則。")
+    elif "示範" in mode or db_problem:
         st.info("請在已連接 Neon 的真實行情模式使用。")
     elif st.button("執行 V3.6 嚴格研究",key="v36_run"):
         if research_end<research_start or (research_end-research_start).days>30:
