@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from sqlalchemy import create_engine
 from src.storage import metadata, prices, load_prices_between
-from src.research_v36 import research_integrity
+from src.research_v36 import research_integrity, research_readiness
 
 
 def _sample(missing_market=None, missing_stock=None, spike=False):
@@ -59,3 +59,18 @@ def test_bounded_research_loader():
     assert len(load_prices_between(engine,date(2025,1,1),date(2025,1,3)))==1
     with pytest.raises(ValueError):
         load_prices_between(engine,date(2024,1,1),date(2025,1,3))
+
+
+def test_zero_signals_not_interpretable_without_warmup():
+    empty=pd.DataFrame(columns=["day","market","code"])
+    result=research_readiness(empty,date(2025,3,3),date(2025,3,14))
+    assert len(result)==2
+    assert (result["訊號期有行情日"]==0).all()
+    assert result["資料就緒判定"].str.contains("無法解讀").all()
+
+
+def test_partial_market_history_is_explicitly_flagged():
+    data,_=_sample()
+    # Sample covers March to June 2026; target March 3-14 has <65 pre-signal days.
+    status=research_readiness(data,date(2026,3,3),date(2026,3,13))
+    assert "前置行情不足65日" in status.loc[status["市場"]=="TWSE","資料就緒判定"].iloc[0]
