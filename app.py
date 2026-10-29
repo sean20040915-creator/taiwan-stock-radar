@@ -14,10 +14,11 @@ from src.backtest import simulate, metrics, signal_outcomes
 from src.diagnostics import diagnose_triggers, historical_signal_outcomes
 from src.validation import validation_observations, descriptive_summary
 from src.coverage import archive_coverage
+from src.data_audit import read_daily_counts, analyze_archive_coverage, backtest_data_gate
 from src.forward_audit import verify_frozen_rules, forward_signal_report
 from src.demo import synthetic_prices
 
-st.set_page_config(page_title="台股飆股雷達 V3.4 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.5 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
 [data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
@@ -37,7 +38,7 @@ def analyze(frame):
     return scored_frame(frame)
 
 
-st.sidebar.title("📈 飆股雷達 V3.4")
+st.sidebar.title("📈 飆股雷達 V3.5")
 st.sidebar.caption("短線3～5交易日 | SOP技術預篩 MVP")
 st.sidebar.divider()
 try:
@@ -71,7 +72,7 @@ latest_day=str(prices.day.max()) if not prices.empty else "—"
 today=datetime.now(ZoneInfo("Asia/Taipei")).date()
 age=(today-pd.Timestamp(latest_day).date()).days if latest_day!="—" else None
 
-st.title("台股飆股雷達 V3.4")
+st.title("台股飆股雷達 V3.5")
 st.caption("先蓄勢，再突破；先驗證資料，再計算分數。適用 3～5 日短線策略研究。")
 if "示範" in mode:
     st.warning("🧪 **DEMO 模式**：所有股價、股票代號、排名與交易績效均為程式產生的虛構資料，不代表台灣股市。")
@@ -85,7 +86,7 @@ if "示範" not in mode and not latest.empty and latest.groupby("market")["day"]
     st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
-p1,p2,p3,p4,p6,p7,p8,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🧭 前瞻追蹤 V3.4","🛠 資料品質"])
+p1,p2,p3,p4,p6,p7,p8,p9,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🧭 前瞻追蹤 V3.4","🧾 資料稽核 V3.5","🛠 資料品質"])
 
 with p1:
     good=latest[latest.setup] if not latest.empty else pd.DataFrame()
@@ -295,6 +296,36 @@ with p8:
             st.download_button("下載 V3.4 前瞻訊號觀察 CSV", future_signals.to_csv(index=False).encode("utf-8-sig"),
                                file_name="v34_forward_signals.csv", mime="text/csv")
     st.info("兩年回補請使用 GitHub Actions 的 V3.4 Long History Pilot，先以2天小量試跑。此階段不會宣稱樣本外交易策略已驗證。")
+
+with p9:
+    st.subheader("V3.5｜兩年歷史資料品質稽核")
+    st.warning("此頁是只讀的歷史行情稽核，不會修改或補造任何價格。平日不一定是交易日；未登記的臨時休市也可能顯示缺口。")
+    if "示範" in mode or db_problem:
+        st.info("請使用已連接 Neon 的真實行情模式，才能查看資料庫稽核。")
+    else:
+        try:
+            aggregate = read_daily_counts(get_engine())
+            audit_summary, audit_detail = analyze_archive_coverage(aggregate)
+            st.markdown("#### 2024/10/21～2026/10/19：市場日資料存在情況")
+            st.dataframe(audit_summary, hide_index=True, use_container_width=True)
+            can_validate, reason = backtest_data_gate(audit_summary)
+            st.warning("正式策略驗證狀態：尚未通過。"+reason)
+            st.caption("資料存在率不等於真正的歷史完整率，也不能用來推論選股勝率；目前未整合官方完整交易日曆、歷史下市股與除權息。")
+            c1,c2 = st.columns(2)
+            market_filter = c1.selectbox("查看市場", ["全部", "TWSE", "TPEX"], key="audit_market")
+            status_filter = c2.selectbox("查看資料狀態", ["僅需注意", "全部"], key="audit_status")
+            view = audit_detail.copy()
+            if market_filter != "全部":
+                view=view[view["市場"]==market_filter]
+            if status_filter=="僅需注意":
+                view=view[~view["狀態"].isin(["已登記休市","有行情（尚未認證完整）"])]
+            st.dataframe(view, hide_index=True, use_container_width=True, height=450)
+            st.download_button("下載完整 V3.5 缺口與異常明細 CSV",
+                               audit_detail.to_csv(index=False).encode("utf-8-sig"),
+                               "v35_data_audit.csv", "text/csv")
+            st.info("回補自動流程照常執行；當資料缺口消失後，仍需先解決除權息／下市股／可成交性等偏誤，才能對3～5日回測作正式驗證。")
+        except Exception as exc:
+            st.error(f"資料稽核暫時無法執行：{type(exc).__name__}，請檢查 PostgreSQL 連線及資料表。")
 
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
