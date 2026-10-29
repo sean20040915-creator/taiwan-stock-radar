@@ -18,7 +18,7 @@ from src.data_audit import read_daily_counts, analyze_archive_coverage, backtest
 from src.forward_audit import verify_frozen_rules, forward_signal_report
 from src.demo import synthetic_prices
 from src.storage import load_prices_between
-from src.research_v36 import research_integrity
+from src.research_v36 import research_integrity, research_readiness
 from datetime import date, timedelta
 
 st.set_page_config(page_title="台股飆股雷達 V3.6 | 技術預篩",page_icon="📈",layout="wide")
@@ -352,11 +352,17 @@ with p10:
                 if research_prices.empty:
                     st.info("指定區間無已保存行情。")
                 else:
+                    readiness=research_readiness(research_prices,research_start,research_end)
+                    st.markdown("#### 研究資料完整性（先檢查，再解讀訊號）")
+                    st.dataframe(readiness,hide_index=True,use_container_width=True)
                     research_scored=scored_frame(research_prices)
                     audit=research_integrity(research_scored,research_start,research_end)
-                    st.metric("訊號數（含不合格）",len(audit))
+                    st.metric("偵測到的技術訊號數（含待核實）",len(audit))
                     if audit.empty:
-                        st.info("此期間沒有技術候選或突破訊號。")
+                        if readiness["資料就緒判定"].str.contains("不足|缺口|缺乏").any():
+                            st.warning("目前0訊號不能當成真正沒有符合條件的股票：研究資料尚有缺漏或不足，請先回補再重新驗證。")
+                        else:
+                            st.info("日期存在性初步足夠，但此期間未偵測到候選或突破訊號；仍需核實歷史下市股與公司行動。")
                     else:
                         st.dataframe(audit["判定"].value_counts().rename_axis("判定").reset_index(name="訊號數"),hide_index=True,use_container_width=True)
                         st.dataframe(audit,hide_index=True,use_container_width=True)
