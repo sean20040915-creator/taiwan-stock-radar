@@ -17,8 +17,11 @@ from src.coverage import archive_coverage
 from src.data_audit import read_daily_counts, analyze_archive_coverage, backtest_data_gate
 from src.forward_audit import verify_frozen_rules, forward_signal_report
 from src.demo import synthetic_prices
+from src.storage import load_prices_between
+from src.research_v36 import research_integrity
+from datetime import date, timedelta
 
-st.set_page_config(page_title="台股飆股雷達 V3.5 | 技術預篩",page_icon="📈",layout="wide")
+st.set_page_config(page_title="台股飆股雷達 V3.6 | 技術預篩",page_icon="📈",layout="wide")
 st.markdown("""<style>
 .block-container{max-width:1370px;padding-top:1.5rem}
 [data-testid="stMetric"]{background:rgba(128,128,128,.13);border:1px solid rgba(128,128,128,.18);border-radius:12px;padding:12px}
@@ -38,7 +41,7 @@ def analyze(frame):
     return scored_frame(frame)
 
 
-st.sidebar.title("📈 飆股雷達 V3.5")
+st.sidebar.title("📈 飆股雷達 V3.6")
 st.sidebar.caption("短線3～5交易日 | SOP技術預篩 MVP")
 st.sidebar.divider()
 try:
@@ -72,7 +75,7 @@ latest_day=str(prices.day.max()) if not prices.empty else "—"
 today=datetime.now(ZoneInfo("Asia/Taipei")).date()
 age=(today-pd.Timestamp(latest_day).date()).days if latest_day!="—" else None
 
-st.title("台股飆股雷達 V3.5")
+st.title("台股飆股雷達 V3.6")
 st.caption("先蓄勢，再突破；先驗證資料，再計算分數。適用 3～5 日短線策略研究。")
 if "示範" in mode:
     st.warning("🧪 **DEMO 模式**：所有股價、股票代號、排名與交易績效均為程式產生的虛構資料，不代表台灣股市。")
@@ -86,7 +89,7 @@ if "示範" not in mode and not latest.empty and latest.groupby("market")["day"]
     st.warning(f"⚠️ 市場日期尚未一致（{dates}），請勿把跨市場結果當成同一交易日；先等待／檢查來源是否更新。")
 st.info("目前僅有 **技術預篩 57分**（股價結構35 + 量能12 + 未過熱10）。市場／族群15、法人8、相對強弱10、營收及公告10等共43分尚未介接，不會虛構完整100分與A級評價。處置與普通股身份亦尚待完整驗證。")
 
-p1,p2,p3,p4,p6,p7,p8,p9,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🧭 前瞻追蹤 V3.4","🧾 資料稽核 V3.5","🛠 資料品質"])
+p1,p2,p3,p4,p6,p7,p8,p9,p10,p5=st.tabs(["🏠 今日預篩","🔍 個股分析","⏱ 追蹤訊號","📊 策略回測","🧪 訊號診斷","📐 歷史驗證 V3.3","🧭 前瞻追蹤 V3.4","🧾 資料稽核 V3.5","🔬 嚴格研究 V3.6","🛠 資料品質"])
 
 with p1:
     good=latest[latest.setup] if not latest.empty else pd.DataFrame()
@@ -326,6 +329,41 @@ with p9:
             st.info("回補自動流程照常執行；當資料缺口消失後，仍需先解決除權息／下市股／可成交性等偏誤，才能對3～5日回測作正式驗證。")
         except Exception as exc:
             st.error(f"資料稽核暫時無法執行：{type(exc).__name__}，請檢查 PostgreSQL 連線及資料表。")
+
+with p10:
+    st.subheader("V3.6｜連續交易日與研究資料品質驗證")
+    st.warning("這是保守的描述性研究，不是可交易回測。使用未調整的收盤價，尚未納入除權息、下市股、停牌、交易成本及可成交性。")
+    st.caption("研究資料與日常390天選股資料分開查詢，每次只讀取有限區間；保留原本57分技術規則。")
+    d1,d2=st.columns(2)
+    research_start=d1.date_input("訊號開始日期",value=date(2025,3,3),key="v36_start")
+    research_end=d2.date_input("訊號結束日期",value=date(2025,3,14),key="v36_end")
+    if "示範" in mode or db_problem:
+        st.info("請在已連接 Neon 的真實行情模式使用。")
+    elif st.button("執行 V3.6 嚴格研究",key="v36_run"):
+        if research_end<research_start or (research_end-research_start).days>30:
+            st.error("研究訊號日期必須遞增，且區間最多31個日曆日。")
+        elif research_end>today:
+            st.error("不能研究尚未發生的日期。")
+        else:
+            try:
+                range_start=research_start-timedelta(days=135)
+                range_end=min(today,research_end+timedelta(days=15))
+                research_prices=load_prices_between(get_engine(),range_start,range_end)
+                if research_prices.empty:
+                    st.info("指定區間無已保存行情。")
+                else:
+                    research_scored=scored_frame(research_prices)
+                    audit=research_integrity(research_scored,research_start,research_end)
+                    st.metric("訊號數（含不合格）",len(audit))
+                    if audit.empty:
+                        st.info("此期間沒有技術候選或突破訊號。")
+                    else:
+                        st.dataframe(audit["判定"].value_counts().rename_axis("判定").reset_index(name="訊號數"),hide_index=True,use_container_width=True)
+                        st.dataframe(audit,hide_index=True,use_container_width=True)
+                        st.download_button("下載 V3.6 研究稽核 CSV",audit.to_csv(index=False).encode("utf-8-sig"),"v36_research.csv","text/csv")
+                        st.warning("只有標示『僅可描述性觀察』的資料才有3／5日變動；仍不得用其宣稱歷史勝率或預測能力。")
+            except Exception as exc:
+                st.error(f"研究載入失敗：{type(exc).__name__}，請檢查資料庫／日期區間。")
 
 with p5:
     st.subheader("資料品質、覆蓋率與來源")
