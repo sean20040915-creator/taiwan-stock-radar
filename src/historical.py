@@ -169,7 +169,8 @@ def fetch_historical_day(session:requests.Session, market:str, trading_day:date)
         date(2026, 9, 25),
         date(2026, 9, 28),
         date(2026, 10, 9),
-        date(2026, 10, 26),
+        date(2026, 10, 23),  # Typhoon 薔琵: TWSE and TPEx officially closed
+        date(2026, 10, 26),  # Taiwan Retrocession Day observed holiday
     }
 
     if trading_day in official_market_closures:
