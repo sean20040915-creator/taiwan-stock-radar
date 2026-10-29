@@ -73,3 +73,28 @@ def test_2026_october_23_typhoon_closure(market):
     with pytest.raises(historical.NoSessionData, match="official market holiday"):
         historical.fetch_historical_day(session, market, date(2026, 10, 23))
     session.get.assert_not_called()
+
+
+@pytest.mark.parametrize("market", ["TWSE", "TPEX"])
+@pytest.mark.parametrize("closure", [
+    date(2025, 1, 1),
+    date(2025, 1, 23),
+    date(2025, 1, 24),
+    date(2025, 1, 27),
+    date(2025, 2, 28),
+    date(2025, 4, 3),
+    date(2025, 10, 24),
+    date(2026, 2, 12),
+    date(2026, 2, 13),
+])
+def test_known_nontrading_days_never_request_prices(market, closure):
+    session = Mock()
+    with pytest.raises(historical.NoSessionData, match="official market holiday"):
+        historical.fetch_historical_day(session, market, closure)
+    session.get.assert_not_called()
+
+
+@pytest.mark.parametrize("market", ["TWSE", "TPEX"])
+def test_regular_trading_date_not_classified_closed(market):
+    from src.market_calendar import is_known_market_closure
+    assert not is_known_market_closure(market, date(2025, 1, 2))
