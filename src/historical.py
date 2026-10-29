@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 import requests
 from src.sources import HEADERS, num, valid_code
+from src.market_calendar import is_known_market_closure
 
 TWSE_HISTORY_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
 TPEX_HISTORY_URL = "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php"
@@ -158,22 +159,7 @@ def parse_historical(payload: dict, market: str, expected: date):
 
 def fetch_historical_day(session:requests.Session, market:str, trading_day:date):
     
-    # Confirmed TWSE / TPEx full-market closures; only verified dates belong here.
-    official_market_closures = {
-        date(2024, 10, 31),  # Kong-rey typhoon: both exchanges closed
-        date(2026, 4, 3),
-        date(2026, 4, 6),
-        date(2026, 5, 1),
-        date(2026, 6, 19),
-        date(2026, 7, 10),  # Bavi typhoon: both exchanges closed
-        date(2026, 9, 25),
-        date(2026, 9, 28),
-        date(2026, 10, 9),
-        date(2026, 10, 23),  # Typhoon 薔琵: TWSE and TPEx officially closed
-        date(2026, 10, 26),  # Taiwan Retrocession Day observed holiday
-    }
-
-    if trading_day in official_market_closures:
+    if is_known_market_closure(market, trading_day):
         raise NoSessionData(
             f"{market} {trading_day}: official market holiday"
         )
