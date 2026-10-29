@@ -22,3 +22,13 @@ jobs:
           cache: pip
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest -q
+      - name: Verify dashboard imports and Streamlit startup
+        run: |
+          python -m compileall -q app.py src
+          python -c "from src.research_v36 import research_integrity, research_readiness; assert callable(research_readiness)"
+          python - <<'PY'
+          from streamlit.testing.v1 import AppTest
+          app = AppTest.from_file('app.py', default_timeout=60).run()
+          errors = [str(e.message) for e in app.exception]
+          assert not errors, f'Streamlit startup errors: {errors}'
+          PY
