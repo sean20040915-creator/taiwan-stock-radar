@@ -121,3 +121,22 @@ def record_run(engine, started, status, details):
 def load_runs(engine) -> pd.DataFrame:
     with engine.connect() as cx:
         return pd.read_sql(select(runs).order_by(runs.c.id.desc()).limit(20), cx)
+
+
+def load_prices_between(engine, start_day, end_day, max_calendar_days=280) -> pd.DataFrame:
+    """Read an explicit bounded archive slice; never change live-scan lookback.
+
+    Accept Python date inputs. Both endpoints inclusive. The upper bound
+    prevents Streamlit from loading a multi-year OHLCV table inadvertently.
+    """
+    from datetime import date
+    if not isinstance(start_day, date) or not isinstance(end_day, date):
+        raise TypeError("start_day and end_day must be datetime.date")
+    if end_day < start_day or (end_day - start_day).days > max_calendar_days:
+        raise ValueError("Research data window exceeds permitted calendar days")
+    stmt = (select(prices)
+            .where(prices.c.day >= start_day.isoformat(),
+                   prices.c.day <= end_day.isoformat())
+            .order_by(prices.c.day, prices.c.market, prices.c.code))
+    with engine.connect() as cx:
+        return pd.read_sql(stmt, cx)
